@@ -10,12 +10,13 @@ import torchvision.datasets as dset
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 import torch.optim as optim
-import mon
 import NEmon
 import numpy as np
 import time
 from logger import Logger
 import numpy as np
+
+import wandb
 
 def cuda(tensor):
     if torch.cuda.is_available():
@@ -53,6 +54,7 @@ def train(trainLoader, testLoader, model, epochs=15, max_lr=1e-3,
         nTrain = len(trainLoader.dataset)
         model.train()
         start = time.time()
+        total_train_loss = 0
         for batch_idx, batch in enumerate(trainLoader):
             if (batch_idx == int(len(trainLoader)/3) or batch_idx == int(len(trainLoader)/3*2)) and tune_alpha:
                 run_tune_alpha(model, cuda(batch[0]), max_alpha)
@@ -90,9 +92,9 @@ def train(trainLoader, testLoader, model, epochs=15, max_lr=1e-3,
                 model.mon.stats.reset()
             optimizer.step()
             
-            test_loss = 0
-            incorrect = 0
-            model.eval()
+            # test_loss = 0
+            # incorrect = 0
+            # model.eval()
             
         if lr_mode == 'step':
             lr_scheduler.step()
