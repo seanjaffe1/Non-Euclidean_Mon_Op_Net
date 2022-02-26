@@ -10,7 +10,6 @@ import torchvision.datasets as dset
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 import torch.optim as optim
-import mon
 import NEmon
 import numpy as np
 import time
