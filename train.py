@@ -26,7 +26,7 @@ def cuda(tensor):
 
 def train(trainLoader, testLoader, model, epochs=15, max_lr=1e-3,
           print_freq=10, change_mo=True, model_path=None, lr_mode='step',
-          step=10,tune_alpha=False,regularizer=0,max_alpha=1.):
+          step=10,tune_alpha=False,regularizer=0,max_alpha=1., log_wandb=False):
     loggr = Logger(printstr=["batch: {}. loss: {:.2f}, valid_loss/acc: {:.2f}/{}, sparsity of A: {:.2f}%, norm of A: {:.2f}, Lipschitz constant: {:.2f}", "batch", "loss", "valid_loss", "valid_acc", "sparsity_A", "norm_A", "Lipschitz"],
                dir_name='NEMon-CIFAR')
 
@@ -79,6 +79,8 @@ def train(trainLoader, testLoader, model, epochs=15, max_lr=1e-3,
             #print(Lip)
                 ce_loss += regularizer*Lip
             ce_loss.backward()
+
+            total_train_loss += ce_loss.item()
             nProcessed += len(data)
             if batch_idx % print_freq == 0 and batch_idx > 0:
                 incorrect = preds.float().argmax(1).ne(target.data).sum()
@@ -95,7 +97,8 @@ def train(trainLoader, testLoader, model, epochs=15, max_lr=1e-3,
             # test_loss = 0
             # incorrect = 0
             # model.eval()
-            
+        
+
         if lr_mode == 'step':
             lr_scheduler.step()
 
@@ -131,6 +134,11 @@ def train(trainLoader, testLoader, model, epochs=15, max_lr=1e-3,
             print('\n\nTest set: Average loss: {:.4f}, Error: {}/{} ({:.2f}%)'.format(
                 test_loss, incorrect, nTotal, err))
 
+            if (log_wandb):
+                wandb.log({'train_loss': total_train_loss,
+                        'test_loss': test_loss,
+                        'incorrect': incorrect})
+                    
         print("Tot test time: {}\n\n\n\n".format(time.time() - start))
 
 
@@ -264,6 +272,8 @@ class NESingleConvNet(nn.Module):
 
     def __init__(self, splittingMethod, in_dim=28, in_channels=1, out_channels=32, m=0.1, **kwargs):
         super().__init__()
+
+
         n = in_dim + 2
         shp = (n, n)
         self.pool = 4
@@ -274,6 +284,7 @@ class NESingleConvNet(nn.Module):
         self.Wout = nn.Linear(self.out_dim, 10)
 
     def forward(self, x):
+        print("IN forward")
         x = F.pad(x, (1, 1, 1, 1))
         z = self.mon(x)
         z = F.avg_pool2d(z[-1], self.pool)

@@ -120,6 +120,7 @@ class NEMONSingleConv(nn.Module):
     """ Convolutional NEMON """
 
     def __init__(self, in_channels, out_channels, shp, kernel_size=5, m=0.05):
+        #print("in NEMONSINGLE CONV INIT")
         super().__init__()
         self.U = nn.Conv2d(in_channels, out_channels, kernel_size)
         self.A = nn.Conv2d(out_channels, out_channels, kernel_size, bias=False)
@@ -153,12 +154,14 @@ class NEMONSingleConv(nn.Module):
         return (F.conv2d(self.cpad(x), self.U.weight, self.U.bias),)
 
     def multiply(self, *z):
+
         A = self.g * self.A.weight / self.A.weight.reshape(-1).norm()
         Az = F.conv2d(self.cpad(z[0]), A)
         z_out = (self.m - torch.max(torch.abs(A)) * self.out_channels) * z[0] + Az
         return (z_out,)
 
     def multiply_transpose(self, *g):
+
         A = self.g * self.A.weight / self.A.weight.reshape(-1).norm()
         ATg = self.uncpad(F.conv_transpose2d(self.cpad(g[0]), A))
         g_out = (self.m - torch.max(torch.abs(A)) * self.out_channels) * g[0] + ATg
