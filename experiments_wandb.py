@@ -64,9 +64,9 @@ if log_wandb:
 
 
 if dataset == 'cifar':
-     trainLoader, testLoader = train.cifar_loaders(train_batch_size=batch_size, test_batch_size=200, augment=False)
+     trainLoader, testLoader = train.cifar_loaders(train_batch_size=batch_size, test_batch_size=batch_size, augment=False)
 elif dataset == 'mnist':
-     trainLoader, testLoader = train.mnist_loaders(train_batch_size=batch_size, test_batch_size=200)
+     trainLoader, testLoader = train.mnist_loaders(train_batch_size=batch_size, test_batch_size=batch_size)
 
 if dataset == 'cifar':
      train.train(trainLoader, testLoader,

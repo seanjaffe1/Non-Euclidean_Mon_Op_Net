@@ -3,6 +3,7 @@ Code is adapted from the monotone operator network repository on GitHub
 https://github.com/locuslab/monotone_op_net
 '''
 
+from distutils.log import error
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -158,16 +159,22 @@ class NEMONSingleConv(nn.Module):
         A = self.g * self.A.weight / self.A.weight.reshape(-1).norm()
         Az = F.conv2d(self.cpad(z[0]), A)
 
-        # change to z_out = (self.m - torch.sum(torch.abs(A))) * z[0] + Az
-        z_out = (self.m - torch.max(torch.abs(A)) * self.out_channels) * z[0] + Az
+        
+        
+        # new
+        z_out = (self.m - torch.max(torch.sum(torch.abs(A), axis=(2,3)))) * z[0] + Az
+        #old
+        #z_out = (self.m - torch.max(torch.abs(A)) * self.out_channels) * z[0] + Az
         return (z_out,)
 
     def multiply_transpose(self, *g):
 
         A = self.g * self.A.weight / self.A.weight.reshape(-1).norm()
         ATg = self.uncpad(F.conv_transpose2d(self.cpad(g[0]), A))
-        # change to z_out =(self.m - torch.sum(torch.abs(A)) ) * g[0] + ATg
-        g_out = (self.m - torch.max(torch.abs(A)) * self.out_channels) * g[0] + ATg
+        # new
+        g_out =(self.m - torch.max(torch.sum(torch.abs(A), axis=(2,3)))) * g[0] + ATg
+        #old
+        #g_out = (self.m - torch.max(torch.abs(A)) * self.out_channels) * g[0] + ATg
         return (g_out,)
 
     def init_inverse(self, alpha, beta):
