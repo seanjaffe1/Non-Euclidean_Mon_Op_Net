@@ -157,6 +157,8 @@ class NEMONSingleConv(nn.Module):
 
         A = self.g * self.A.weight / self.A.weight.reshape(-1).norm()
         Az = F.conv2d(self.cpad(z[0]), A)
+
+        # change to z_out = (self.m - torch.sum(torch.abs(A))) * z[0] + Az
         z_out = (self.m - torch.max(torch.abs(A)) * self.out_channels) * z[0] + Az
         return (z_out,)
 
@@ -164,6 +166,7 @@ class NEMONSingleConv(nn.Module):
 
         A = self.g * self.A.weight / self.A.weight.reshape(-1).norm()
         ATg = self.uncpad(F.conv_transpose2d(self.cpad(g[0]), A))
+        # change to z_out =(self.m - torch.sum(torch.abs(A)) ) * g[0] + ATg
         g_out = (self.m - torch.max(torch.abs(A)) * self.out_channels) * g[0] + ATg
         return (g_out,)
 
@@ -188,13 +191,14 @@ class NEMONBorderReLU(nn.Module):
         self.border = border
 
     def forward(self, *z):
-        zn = tuple(F.relu(z_) for z_ in z)
+        zn = tuple(F.relu(z_, inplace=False) for z_ in z)
+        result = []
         for i in range(len(zn)):
-            zn[i][:, :, :self.border, :] = 0
-            zn[i][:, :, -self.border:, :] = 0
-            zn[i][:, :, :, :self.border] = 0
-            zn[i][:, :, :, -self.border:] = 0
-        return zn
+            out = torch.zeros_like(zn[i])
+            out[:,:,self.border:-self.border, self.border:-self.border] = zn[i][:,:,self.border:-self.border, self.border:-self.border]
+            result.append(out)
+            
+        return tuple(result)
 
     def derivative(self, *z):
         return tuple((z_ > 0).type_as(z[0]) for z_ in z)

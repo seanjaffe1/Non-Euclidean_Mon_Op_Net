@@ -280,11 +280,12 @@ class NESingleConvNet(nn.Module):
         self.out_dim = out_channels * (n // self.pool) ** 2
         linear_module = NEmon.NEMONSingleConv(in_channels, out_channels, shp, m=m)
         nonlin_module = NEmon.NEMONBorderReLU(linear_module.pad[0])
+        #nonlin_module = NEmon.NEMONReLU()
+
         self.mon = splittingMethod(linear_module, nonlin_module, **expand_args(MON_DEFAULTS, kwargs))
         self.Wout = nn.Linear(self.out_dim, 10)
 
     def forward(self, x):
-        print("IN forward")
         x = F.pad(x, (1, 1, 1, 1))
         z = self.mon(x)
         z = F.avg_pool2d(z[-1], self.pool)
