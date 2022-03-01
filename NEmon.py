@@ -185,13 +185,14 @@ class NEMONBorderReLU(nn.Module):
         self.border = border
 
     def forward(self, *z):
-        zn = tuple(F.relu(z_) for z_ in z)
+        zn = tuple(F.relu(z_, inplace=False) for z_ in z)
+        result = []
         for i in range(len(zn)):
-            zn[i][:, :, :self.border, :] = 0
-            zn[i][:, :, -self.border:, :] = 0
-            zn[i][:, :, :, :self.border] = 0
-            zn[i][:, :, :, -self.border:] = 0
-        return zn
+            out = torch.zeros_like(zn[i])
+            out[:,:,self.border:-self.border, self.border:-self.border] = zn[i][:,:,self.border:-self.border, self.border:-self.border]
+            result.append(out)
+            
+        return tuple(result)
 
     def derivative(self, *z):
         return tuple((z_ > 0).type_as(z[0]) for z_ in z)
