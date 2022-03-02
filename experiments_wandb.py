@@ -15,11 +15,13 @@ import wandb
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', metavar='name', nargs=1, default='mnist', 
+parser.add_argument('--dataset', metavar='name', default='mnist', 
                     help="Which dataset to use: 'cifar' or 'mnist'")
 parser.add_argument('--epochs', type=int, default=10,
                     help='training epochs')
-parser.add_argument('--batch_size', type=int, default=120,
+parser.add_argument('--batch_size', type=int, default=200,
+                    help='size of training batch')
+parser.add_argument('--test_batch_size', type=int, default=250,
                     help='size of training batch')
 parser.add_argument('--lr', type=float, default=1e-3,
                     help='learning rate')
@@ -38,6 +40,7 @@ args = parser.parse_args()
 dataset = args.dataset
 epochs = args.epochs
 batch_size=args.batch_size
+test_batch_size=args.test_batch_size
 learning_rate =args.lr
 log_wandb=args.wandb
 
@@ -62,11 +65,10 @@ if log_wandb:
      wandb.config.seed_no = seed_no
 
 
-
 if dataset == 'cifar':
      trainLoader, testLoader = train.cifar_loaders(train_batch_size=batch_size, test_batch_size=batch_size, augment=False)
 elif dataset == 'mnist':
-     trainLoader, testLoader = train.mnist_loaders(train_batch_size=batch_size, test_batch_size=batch_size)
+     trainLoader, testLoader = train.mnist_loaders(train_batch_size=test_batch_size, test_batch_size=batch_size)
 
 if dataset == 'cifar':
      train.train(trainLoader, testLoader,
