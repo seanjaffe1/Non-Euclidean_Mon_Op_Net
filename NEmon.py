@@ -209,3 +209,159 @@ class NEMONBorderReLU(nn.Module):
 
     def derivative(self, *z):
         return tuple((z_ > 0).type_as(z[0]) for z_ in z)
+
+
+class NEMONMultiConv(nn.Module):
+    def __init__(self, in_channels, conv_channels, image_size, kernel_size=3, m=1.0):
+        super().__init__()
+        self.pad = 4 * ((kernel_size - 1) // 2,)
+        self.conv_shp = tuple((image_size - 2 * self.pad[0]) // 2 ** i + 2 * self.pad[0]
+                              for i in range(len(conv_channels)))
+        self.m = m
+
+        # create convolutional layers
+        self.U = nn.Conv2d(in_channels, conv_channels[0], kernel_size)
+        self.A0 = nn.ModuleList([nn.Conv2d(c, c, kernel_size, bias=False) for c in conv_channels])
+        self.B0 = nn.ModuleList([nn.Conv2d(c, c, kernel_size, bias=False) for c in conv_channels])
+        self.A_n0 = nn.ModuleList([nn.Conv2d(c1, c2, kernel_size, bias=False, stride=2)
+                                   for c1, c2 in zip(conv_channels[:-1], conv_channels[1:])])
+
+        self.g = nn.ParameterList([nn.Parameter(torch.tensor(1.)) for _ in range(len(conv_channels))])
+        self.gn = nn.ParameterList([nn.Parameter(torch.tensor(1.)) for _ in range(len(conv_channels) - 1)])
+        self.h = nn.ParameterList([nn.Parameter(torch.tensor(1.)) for _ in range(len(conv_channels))])
+
+
+
+        self.S_idx = list()
+        self.S_idxT = list()
+        for n in self.conv_shp:
+            p = n // 2
+            q = n
+            idxT = list()
+            _idx = [[j + (i - 1) * p for i in range(1, q + 1)] for j in range(1, p + 1)]
+            for i in _idx:
+                for j in i:
+                    idxT.append(j - 1)
+            _idx = [[j + (i - 1) * p + p * q for i in range(1, q + 1)] for j in range(1, p + 1)]
+            for i in _idx:
+                for j in i:
+                    idxT.append(j - 1)
+            idx = list()
+            _idx = [[j + (i - 1) * q for i in range(1, p + 1)] for j in range(1, q + 1)]
+            for i in _idx:
+                for j in i:
+                    idx.append(j - 1)
+            _idx = [[j + (i - 1) * q + p * q for i in range(1, p + 1)] for j in range(1, q + 1)]
+            for i in _idx:
+                for j in i:
+                    idx.append(j - 1)
+            self.S_idx.append(idx)
+            self.S_idxT.append(idxT)
+
+    def A(self, i):
+        return torch.sqrt(self.g[i]) * self.A0[i].weight / self.A0[i].weight.view(-1).norm()
+
+    def A_n(self, i):
+        return torch.sqrt(self.gn[i]) * self.A_n0[i].weight / self.A_n0[i].weight.view(-1).norm()
+
+    def B(self, i):
+        return self.h[i] * self.B0[i].weight / self.B0[i].weight.view(-1).norm()
+
+    def cpad(self, x):
+        return F.pad(x, self.pad, mode="circular")
+
+    def uncpad(self, x):
+        return x[:, :, 2 * self.pad[0]:-2 * self.pad[1], 2 * self.pad[2]:-2 * self.pad[3]]
+
+    def zpad(self, x):
+        return F.pad(x, (0, 1, 0, 1))
+
+    def unzpad(self, x):
+        return x[:, :, :-1, :-1]
+
+    def unstride(self, x):
+        x[:, :, :, -1] += x[:, :, :, 0]
+        x[:, :, -1, :] += x[:, :, 0, :]
+        return x[:, :, 1:, 1:]
+
+    def x_shape(self, n_batch):
+        return (n_batch, self.U.in_channels, self.conv_shp[0], self.conv_shp[0])
+
+    def z_shape(self, n_batch):
+        return tuple((n_batch, self.A0[i].in_channels, self.conv_shp[i], self.conv_shp[i])
+                     for i in range(len(self.A0)))
+
+    def forward(self, x, *z):
+        z_out = self.multiply(*z)
+        bias = self.bias(x)
+        return tuple([z_out[i] + bias[i] for i in range(len(self.A0))])
+
+    def bias(self, x):
+        z_shape = self.z_shape(x.shape[0])
+        n = len(self.A0)
+
+        b_out = [self.U(self.cpad(x))]
+        for i in range(n - 1):
+            b_out.append(torch.zeros(z_shape[i + 1], dtype=self.A0[0].weight.dtype,
+                   device=self.A0[0].weight.device))
+        return tuple(b_out)
+
+    def multiply(self, *z):
+
+        def multiply_zi(z1, A1, B1, A1_n=None, z0=None, A2_n=None):
+            Az1 = F.conv2d(self.cpad(z1), A1)
+            A1TA1z1 = self.uncpad(F.conv_transpose2d(self.cpad(Az1), A1))
+            B1z1 = F.conv2d(self.cpad(z1), B1)
+            B1Tz1 = self.uncpad(F.conv_transpose2d(self.cpad(z1), B1))
+            out = (1 - self.m) * z1 - A1TA1z1 + B1z1 - B1Tz1
+            if A2_n is not None:
+                A2_nz1 = F.conv2d(self.cpad(z1), A2_n, stride=2)
+                A2_nTA2_nz1 = self.unstride(F.conv_transpose2d(A2_nz1,
+                                                               A2_n, stride=2))
+                out -= A2_nTA2_nz1
+            if A1_n is not None:
+                A1_nz0 = self.zpad(F.conv2d(self.cpad(z0), A1_n, stride=2))
+                A1TA1_nz0 = self.uncpad(F.conv_transpose2d(self.cpad(A1_nz0), A1))
+                out -= 2 * A1TA1_nz0
+            return out
+
+        n = len(self.A0)
+        z_out = [multiply_zi(z[0], self.A(0), self.B(0), A2_n=self.A_n(0))]
+        for i in range(1, n - 1):
+            z_out.append(multiply_zi(z[i], self.A(i), self.B(i),
+                                     A1_n=self.A_n(i - 1), z0=z[i - 1], A2_n=self.A_n(i)))
+        z_out.append(multiply_zi(z[n - 1], self.A(n - 1), self.B(n - 1),
+                                 A1_n=self.A_n(n - 2), z0=z[n - 2]))
+
+        return tuple(z_out)
+
+    def multiply_transpose(self, *g):
+
+        def multiply_zi(z1, A1, B1, z2=None, A2_n=None, A2=None):
+            Az1 = F.conv2d(self.cpad(z1), A1)
+            A1TA1z1 = self.uncpad(F.conv_transpose2d(self.cpad(Az1), A1))
+            B1z1 = F.conv2d(self.cpad(z1), B1)
+            B1Tz1 = self.uncpad(F.conv_transpose2d(self.cpad(z1), B1))
+            out = (1 - self.m) * z1 - A1TA1z1 - B1z1 + B1Tz1
+            if A2_n is not None:
+                A2z2 = F.conv2d(self.cpad(z2), A2)
+                A2_nTA2z2 = self.unstride(F.conv_transpose2d(self.unzpad(A2z2),
+                                                             A2_n, stride=2))
+
+                out -= 2 * A2_nTA2z2
+
+                A2_nz1 = F.conv2d(self.cpad(z1), A2_n, stride=2)
+                A2_nTA2_nz1 = self.unstride(F.conv_transpose2d(A2_nz1,
+                                                               A2_n, stride=2))
+
+                out -= A2_nTA2_nz1
+
+            return out
+
+        n = len(self.A0)
+        g_out = []
+        for i in range(n - 1):
+            g_out.append(multiply_zi(g[i], self.A(i), self.B(i), z2=g[i + 1], A2_n=self.A_n(i), A2=self.A(i + 1)))
+        g_out.append(multiply_zi(g[n - 1], self.A(n - 1), self.B(n - 1)))
+
+        return g_out

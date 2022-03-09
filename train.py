@@ -290,3 +290,21 @@ class NESingleConvNet(nn.Module):
         z = self.mon(x)
         z = F.avg_pool2d(z[-1], self.pool)
         return self.Wout(z.view(z.shape[0], -1))
+
+class NEMultiConvNet(nn.Module):
+    def __init__(self, splittingMethod, in_dim=28, in_channels=1,
+                 conv_sizes=(16, 32, 64), m=1.0, **kwargs):
+        super().__init__()
+        linear_module = NEmon.NEMONMultiConv(in_channels, conv_sizes, in_dim+2, kernel_size=3, m=m)
+        nonlin_module = NEmon.NEMONBorderReLU(linear_module.pad[0])
+        self.mon = splittingMethod(linear_module, nonlin_module, **expand_args(MON_DEFAULTS, kwargs))
+        out_shape = linear_module.z_shape(1)[-1]
+        dim = out_shape[1]*out_shape[2]*out_shape[3]
+        self.Wout = nn.Linear(dim, 10)
+
+    def forward(self, x):
+        x = F.pad(x, (1,1,1,1))
+        zs = self.mon(x)
+        z = zs[-1]
+        z = z.view(z.shape[0],-1)
+        return self.Wout(z)
