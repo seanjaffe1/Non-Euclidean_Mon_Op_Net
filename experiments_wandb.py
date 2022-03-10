@@ -39,7 +39,7 @@ parser.add_argument('--seed', type=int, default=42,
                     help='seed for numpy and pytorch')
 parser.add_argument('--m', type=float, default=1.0)
 
-parser.add_argument('--sp', metavar='name', default='ForwardStep',
+parser.add_argument('--sp', metavar='name', default='FS',
                     help = 'Splitting method: \'FS\'  for ForwardStep or \'PR\' for PeacemanRachford' )
 args = parser.parse_args()
 
@@ -51,7 +51,8 @@ test_batch_size=args.test_batch_size
 learning_rate =args.lr
 log_wandb=args.wandb
 m = args.m
-sp = args.sp
+sp_name = args.sp
+
  
 seed_no=args.seed
 torch.manual_seed(seed_no)
@@ -73,7 +74,7 @@ if log_wandb:
      wandb.config.epochs = epochs
      wandb.config.seed_no = seed_no
      wandb.config.m = m
-     wandb.config.sp = sp
+     wandb.config.sp = sp_name
 
 
 if dataset == 'cifar':
@@ -81,9 +82,16 @@ if dataset == 'cifar':
 elif dataset == 'mnist':
      trainLoader, testLoader = train.mnist_loaders(train_batch_size=test_batch_size, test_batch_size=batch_size)
 
+
+if sp_name == 'FS':
+     splitting_method = sp.NEmonForwardStep
+elif sp_name == 'RP':
+     splitting_method = sp.NEmonPeacemanRachford
+else:
+     raise argparse.ArgumentParser("Splitting Method SP not found")
 if dataset == 'cifar':
      if model_type == 'scnn':
-          model = train.NESingleConvNet(sp.NEmonForwardStep,
+          model = train.NESingleConvNet(splitting_method,
                                    in_dim=32,
                          in_channels=3,
                          out_channels=81,
@@ -108,7 +116,7 @@ if dataset == 'cifar':
 
 if dataset == 'mnist':
      if model_type == 'fnn':
-          model = train.NESingleFcNet(sp.NEmonForwardStep,
+          model = train.NESingleFcNet(splitting_method,
                          in_dim=28**2,
                          out_dim=100,
                          alpha=1.0,
@@ -118,7 +126,7 @@ if dataset == 'mnist':
           step = 10
      elif model_type == 'scnn':
 
-          model = train.NESingleConvNet(sp.NEmonForwardStep,
+          model = train.NESingleConvNet(splitting_method,
                                 in_dim=28,
                        in_channels=1,
                        out_channels=64,
@@ -130,7 +138,7 @@ if dataset == 'mnist':
 
      elif model_type == 'mcnn':
 
-          model = train.NEMultiConvNet(sp.NEmonForwardStep,
+          model = train.NEMultiConvNet(splitting_method,
                                 in_dim=28,
                        conv_sizes=(16, 32, 64),
                        alpha=0.5,
@@ -149,7 +157,7 @@ if dataset == 'mnist':
           #       epochs=40,
                epochs=epochs,
                print_freq=100,
-               tune_alpha=True,
+               tune_alpha=False,
                regularizer = 0,
                log_wandb=log_wandb)
 

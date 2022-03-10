@@ -34,7 +34,7 @@ class NEmonForwardStep(nn.Module):
             bias = self.linear_module.bias(x)
 
             # SEAN error const needs to be changed?
-            err = 1.0
+            err = 100.0
             it = 0
             errs = []
             while (err > self.tol and it < self.max_iter):
@@ -54,8 +54,8 @@ class NEmonForwardStep(nn.Module):
                     errs.append(err_new)
                 else:
                     err_new = sum((zn[i] - z[i]).norm().item() / (1e-6 + zn[i].norm().item()) for i in range(n))
-                # if err_new > 0.85*err:
-                #   self.alpha /= 1.5
+                if err_new > 0.85*err:
+                  self.alpha /= 1.5
                 err = err_new
                 z = zn
                 it = it + 1
@@ -95,7 +95,7 @@ class NEmonForwardStep(nn.Module):
             #sp.alpha = 0.11
             
             # SEAN error const needs to be changed?
-            err = 1.0
+            err = 100.0
             it = 0
             errs = []
             while (err > sp.tol and it < sp.max_iter):
@@ -107,9 +107,9 @@ class NEmonForwardStep(nn.Module):
 
                 err_new = sum((un[i] - u[i]).norm().item() / (1e-6 + un[i].norm().item()) for i in range(n))
                 errs.append(err_new)
-                # if err_new > 0.85*err:
-                #   sp.alpha /= 1.5
-                #   print(sp.alpha)
+                if err_new > 0.85*err:
+                  sp.alpha /= 1.5
+                  print(sp.alpha)
                 err = err_new
                 u = un
                 it = it + 1
@@ -126,7 +126,7 @@ class NEmonForwardStep(nn.Module):
             return (None,) + dg
 
 
-class NEMONPeacemanRachford(nn.Module):
+class NEmonPeacemanRachford(nn.Module):
 
     def __init__(self, linear_module, nonlin_module, alpha=1.0, tol=1e-5, max_iter=50, verbose=False):
         super().__init__()

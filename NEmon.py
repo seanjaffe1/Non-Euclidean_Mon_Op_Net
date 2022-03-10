@@ -90,6 +90,7 @@ class NEMONReLU(nn.Module):
 
 
 def fft_to_complex_matrix(x):
+    print("x shape", x.shape)
     x_stacked = torch.stack((x, torch.flip(x, (4,))), dim=5).permute(2, 3, 0, 4, 1, 5)
     x_stacked[:, :, :, 0, :, 1] *= -1
     return x_stacked.reshape(-1, 2 * x.shape[0], 2 * x.shape[1])
@@ -105,15 +106,15 @@ def init_fft_conv(weight, hw):
     kernel = torch.flip(weight, (2, 3))
     kernel = F.pad(F.pad(kernel, (0, hw[0] - weight.shape[2], 0, hw[1] - weight.shape[3])),
                    (0, py, 0, px), mode="circular")[:, :, py:, px:]
-    return fft_to_complex_matrix(torch.rfft(kernel, 2, onesided=False))
+    return fft_to_complex_matrix(torch.fft.fft(kernel, 2))
 
 
 def fft_conv(x, w_fft, transpose=False):
 
-    x_fft = fft_to_complex_vector(torch.rfft(x, 2, onesided=False))
+    x_fft = fft_to_complex_vector(torch.fft.fft(x, 2))
     wx_fft = x_fft.bmm(w_fft.transpose(1, 2)) if not transpose else x_fft.bmm(w_fft)
     wx_fft = wx_fft.view(x.shape[2], x.shape[3], wx_fft.shape[1], -1, 2).permute(2, 3, 0, 1, 4)
-    return torch.irfft(wx_fft, 2, onesided=False)
+    return torch.fft.ifft(wx_fft, 2)
 
 
 
