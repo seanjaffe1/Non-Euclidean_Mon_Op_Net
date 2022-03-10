@@ -39,7 +39,8 @@ parser.add_argument('--seed', type=int, default=42,
                     help='seed for numpy and pytorch')
 parser.add_argument('--m', type=float, default=1.0)
 
-
+parser.add_argument('--sp', metavar='name', default='ForwardStep',
+                    help = 'Splitting method: \'FS\'  for ForwardStep or \'PR\' for PeacemanRachford' )
 args = parser.parse_args()
 
 dataset = args.dataset
@@ -50,6 +51,7 @@ test_batch_size=args.test_batch_size
 learning_rate =args.lr
 log_wandb=args.wandb
 m = args.m
+sp = args.sp
  
 seed_no=args.seed
 torch.manual_seed(seed_no)
@@ -71,6 +73,7 @@ if log_wandb:
      wandb.config.epochs = epochs
      wandb.config.seed_no = seed_no
      wandb.config.m = m
+     wandb.config.sp = sp
 
 
 if dataset == 'cifar':
@@ -146,7 +149,7 @@ if dataset == 'mnist':
           #       epochs=40,
                epochs=epochs,
                print_freq=100,
-               tune_alpha=False,
+               tune_alpha=True,
                regularizer = 0,
                log_wandb=log_wandb)
 

@@ -33,22 +33,29 @@ class NEmonForwardStep(nn.Module):
             n = len(z)
             bias = self.linear_module.bias(x)
 
-            err = 100.0
+            # SEAN error const needs to be changed?
+            err = 1.0
             it = 0
             errs = []
             while (err > self.tol and it < self.max_iter):
+                # Sasha
+                # zn = self.linear_module.multiply(*z)
+                # zn = tuple((zn[i] + bias[i]) for i in range(n))
+                # zn = self.nonlin_module(*zn)
+                # zn = tuple((1 - self.alpha) * z[i] + self.alpha * zn[i] for i in range(n))
+                
+                #Original Mon
                 zn = self.linear_module.multiply(*z)
-                zn = tuple((zn[i] + bias[i]) for i in range(n))
+                zn = tuple((1 - self.alpha) * z[i] + self.alpha * (zn[i] + bias[i]) for i in range(n))
                 zn = self.nonlin_module(*zn)
-                zn = tuple((1 - self.alpha) * z[i] + self.alpha * zn[i] for i in range(n))
                 if self.save_abs_err:
                     fn = self.nonlin_module(*self.linear_module(x, *zn))
                     err_new = sum((zn[i] - fn[i]).norm().item() / (zn[i].norm().item()) for i in range(n))
                     errs.append(err_new)
                 else:
                     err_new = sum((zn[i] - z[i]).norm().item() / (1e-6 + zn[i].norm().item()) for i in range(n))
-                if err_new > 0.85*err:
-                  self.alpha /= 1.5
+                # if err_new > 0.85*err:
+                #   self.alpha /= 1.5
                 err = err_new
                 z = zn
                 it = it + 1
@@ -86,8 +93,9 @@ class NEmonForwardStep(nn.Module):
             u = tuple(torch.zeros(s, dtype=g[0].dtype, device=g[0].device)
                       for s in sp.linear_module.z_shape(g[0].shape[0]))
             #sp.alpha = 0.11
-
-            err = 100.0
+            
+            # SEAN error const needs to be changed?
+            err = 1.0
             it = 0
             errs = []
             while (err > sp.tol and it < sp.max_iter):
@@ -99,8 +107,9 @@ class NEmonForwardStep(nn.Module):
 
                 err_new = sum((un[i] - u[i]).norm().item() / (1e-6 + un[i].norm().item()) for i in range(n))
                 errs.append(err_new)
-                if err_new > 0.85*err:
-                  sp.alpha /= 1.5
+                # if err_new > 0.85*err:
+                #   sp.alpha /= 1.5
+                #   print(sp.alpha)
                 err = err_new
                 u = un
                 it = it + 1
@@ -117,7 +126,7 @@ class NEmonForwardStep(nn.Module):
             return (None,) + dg
 
 
-class MONPeacemanRachford(nn.Module):
+class NEMONPeacemanRachford(nn.Module):
 
     def __init__(self, linear_module, nonlin_module, alpha=1.0, tol=1e-5, max_iter=50, verbose=False):
         super().__init__()
