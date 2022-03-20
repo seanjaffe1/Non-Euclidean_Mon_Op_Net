@@ -9,6 +9,9 @@ from torch.autograd import Function
 import utils
 import time
 
+
+
+
 class NEmonForwardStep(nn.Module):
     def __init__(self, linear_module, nonlin_module, alpha, tol=1e-4, max_iter=500, verbose=False):
         super().__init__()
@@ -39,24 +42,26 @@ class NEmonForwardStep(nn.Module):
             errs = []
             while (err > self.tol and it < self.max_iter):
                 # Sasha
-                # zn = self.linear_module.multiply(*z)
-                # zn = tuple((zn[i] + bias[i]) for i in range(n))
-                # zn = self.nonlin_module(*zn)
-                # zn = tuple((1 - self.alpha) * z[i] + self.alpha * zn[i] for i in range(n))
+                zn = self.linear_module.multiply(*z)
+                zn = tuple((zn[i] + bias[i]) for i in range(n))
+                zn = self.nonlin_module(*zn)
+                zn = tuple((1 - self.alpha) * z[i] + self.alpha * zn[i] for i in range(n))
                 
                 #Original Mon
-                zn = self.linear_module.multiply(*z)
-                zn = tuple((1 - self.alpha) * z[i] + self.alpha * (zn[i] + bias[i]) for i in range(n))
-                zn = self.nonlin_module(*zn)
+                # zn = self.linear_module.multiply(*z)
+                # zn = tuple((1 - self.alpha) * z[i] + self.alpha * (zn[i] + bias[i]) for i in range(n))
+                # zn = self.nonlin_module(*zn)
                 if self.save_abs_err:
                     fn = self.nonlin_module(*self.linear_module(x, *zn))
                     err_new = sum((zn[i] - fn[i]).norm().item() / (zn[i].norm().item()) for i in range(n))
                     errs.append(err_new)
                 else:
                     err_new = sum((zn[i] - z[i]).norm().item() / (1e-6 + zn[i].norm().item()) for i in range(n))
-                if err_new > 0.85*err:
-                  self.alpha /= 1.5
-                err = err_new
+                
+                # DELETE:
+                # if err_new > 0.85*err:
+                #   self.alpha /= 1.5
+                # err = err_new
                 z = zn
                 it = it + 1
 
@@ -95,7 +100,7 @@ class NEmonForwardStep(nn.Module):
             #sp.alpha = 0.11
             
             # SEAN error const needs to be changed?
-            err = 100.0
+            err = 1.0
             it = 0
             errs = []
             while (err > sp.tol and it < sp.max_iter):
@@ -107,9 +112,9 @@ class NEmonForwardStep(nn.Module):
 
                 err_new = sum((un[i] - u[i]).norm().item() / (1e-6 + un[i].norm().item()) for i in range(n))
                 errs.append(err_new)
-                if err_new > 0.85*err:
-                  sp.alpha /= 1.5
-                  print(sp.alpha)
+                # if err_new > 0.85*err:
+                #   sp.alpha /= 1.5
+                #   print(sp.alpha)
                 err = err_new
                 u = un
                 it = it + 1

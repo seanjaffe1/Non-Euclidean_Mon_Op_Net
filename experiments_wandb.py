@@ -85,7 +85,7 @@ elif dataset == 'mnist':
 
 if sp_name == 'FS':
      splitting_method = sp.NEmonForwardStep
-elif sp_name == 'RP':
+elif sp_name == 'PR':
      splitting_method = sp.NEmonPeacemanRachford
 else:
      raise argparse.ArgumentParser("Splitting Method SP not found")
@@ -157,7 +157,7 @@ if dataset == 'mnist':
           #       epochs=40,
                epochs=epochs,
                print_freq=100,
-               tune_alpha=False,
+               tune_alpha=True,
                regularizer = 0,
                log_wandb=log_wandb)
 
