@@ -41,6 +41,13 @@ parser.add_argument('--m', type=float, default=1.0)
 
 parser.add_argument('--sp', metavar='name', default='FS',
                     help = 'Splitting method: \'FS\'  for ForwardStep or \'PR\' for PeacemanRachford' )
+
+
+parser.add_argument('--savefile', type=ascii, default='',
+                    help =  'file name to save model to. If none, won\' be saved.')
+
+parser.add_argument('--loadfile', type=ascii, default='',
+                    help= 'file to load model from. No file loaded if none.')
 args = parser.parse_args()
 
 dataset = args.dataset
@@ -75,6 +82,7 @@ if log_wandb:
      wandb.config.seed_no = seed_no
      wandb.config.m = m
      wandb.config.sp = sp_name
+     wandb.config.dataset = dataset
 
 
 if dataset == 'cifar':
@@ -142,7 +150,7 @@ if dataset == 'mnist':
                                 in_dim=28,
                        conv_sizes=(16, 32, 64),
                        alpha=0.5,
-                       max_iter=300,
+                       max_iter=1000,
                        tol=1e-2,
                        m=m)
           step  = 25
@@ -157,7 +165,7 @@ if dataset == 'mnist':
           #       epochs=40,
                epochs=epochs,
                print_freq=100,
-               tune_alpha=True,
+               tune_alpha=False,
                regularizer = 0,
                log_wandb=log_wandb)
 

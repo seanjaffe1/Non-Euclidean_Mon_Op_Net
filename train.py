@@ -15,7 +15,7 @@ import numpy as np
 import time
 from logger import Logger
 import numpy as np
-
+from tqdm import tqdm
 import wandb
 
 def cuda(tensor):

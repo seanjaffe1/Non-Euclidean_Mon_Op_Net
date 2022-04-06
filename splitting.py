@@ -19,9 +19,12 @@ class NEmonForwardStep(nn.Module):
         self.nonlin_module = nonlin_module
         #self.alpha = 1/torch.max(torch.diag(torch.abs(self.linear_module.A.weight - torch.diag(torch.abs(self.linear_module.A.weight)@torch.ones(self.linear_module.A.weight.size[0])) + self.linear_module.m*torch.diag(torch.ones(self.linear_module.A.weight.size[0]))))) - 1e-8
         #self.alpha = 1/torch.max(torch.diag(torch.abs(self.linear_module.A.weight - torch.diag(torch.abs(self.linear_module.A.weight)@torch.ones(self.linear_module.A.weight.size()[0])) + self.linear_module.m*torch.diag(torch.ones(self.linear_module.A.weight.size()[0]))))) - 1e-8
-        self.alpha = alpha
+        self.max_alpha = alpha
+        self.running_alpha = alpha
+        self.backward_alpha = alpha
         self.tol = tol
         self.max_iter = max_iter
+        print("MAX ITER:", max_iter)
         self.verbose = verbose
         self.stats = utils.SplittingMethodStats()
         self.save_abs_err = False
@@ -29,6 +32,9 @@ class NEmonForwardStep(nn.Module):
     def forward(self, x):
         """ Forward pass of NEMON, find an equilibirum with averaged iterations"""
         start = time.time()
+
+        # Reset alpha each time?
+        running_alpha = self.max_alpha
         # Run the forward pass _without_ tracking gradients
         with torch.no_grad():
             z = tuple(torch.zeros(s, dtype=x.dtype, device=x.device)
@@ -37,7 +43,7 @@ class NEmonForwardStep(nn.Module):
             bias = self.linear_module.bias(x)
 
             # SEAN error const needs to be changed?
-            err = 100.0
+            err = 1
             it = 0
             errs = []
             while (err > self.tol and it < self.max_iter):
@@ -45,7 +51,7 @@ class NEmonForwardStep(nn.Module):
                 zn = self.linear_module.multiply(*z)
                 zn = tuple((zn[i] + bias[i]) for i in range(n))
                 zn = self.nonlin_module(*zn)
-                zn = tuple((1 - self.alpha) * z[i] + self.alpha * zn[i] for i in range(n))
+                zn = tuple((1 - self.running_alpha) * z[i] + self.running_alpha * zn[i] for i in range(n))
                 
                 #Original Mon
                 # zn = self.linear_module.multiply(*z)
@@ -59,9 +65,10 @@ class NEmonForwardStep(nn.Module):
                     err_new = sum((zn[i] - z[i]).norm().item() / (1e-6 + zn[i].norm().item()) for i in range(n))
                 
                 # DELETE:
-                # if err_new > 0.85*err:
-                #   self.alpha /= 1.5
-                # err = err_new
+                if err_new > 0.85*err and self.running_alpha > 1e-5:
+                  self.running_alpha /= 1.5
+                  #print(self.running_alpha)
+                err = err_new
                 z = zn
                 it = it + 1
 
@@ -71,10 +78,17 @@ class NEmonForwardStep(nn.Module):
         # Run the forward pass one more time, tracking gradients, then backward placeholder
         zn = self.linear_module(x, *z)
         zn = self.nonlin_module(*zn)
+
+   
+        assert err < self.tol, 'Forward iteration not converged'
+        
         zn = self.Backward.apply(self, *zn)
+
+
         self.stats.fwd_iters.update(it)
         self.stats.fwd_time.update(time.time() - start)
         self.errs = errs
+        
         return zn
 
     class Backward(Function):
@@ -98,32 +112,38 @@ class NEmonForwardStep(nn.Module):
             u = tuple(torch.zeros(s, dtype=g[0].dtype, device=g[0].device)
                       for s in sp.linear_module.z_shape(g[0].shape[0]))
             #sp.alpha = 0.11
-            
+            limiting_alpha = 0.2
+
+            #running_alpha = sp.max_alpha
             # SEAN error const needs to be changed?
             err = 1.0
             it = 0
             errs = []
             while (err > sp.tol and it < sp.max_iter):
                 un = sp.linear_module.multiply_transpose(*u)
-                un = tuple((1 - sp.alpha) * u[i] + sp.alpha * un[i] for i in range(n))
-                un = tuple((un[i] + sp.alpha * (1 + d[i]) * v[i]) / (1 + sp.alpha * d[i]) for i in range(n))
+                un = tuple((1 - limiting_alpha) * u[i] + limiting_alpha * un[i] for i in range(n))
+                un = tuple((un[i] + limiting_alpha* (1 + d[i]) * v[i]) / (1 + limiting_alpha * d[i]) for i in range(n))
                 for i in range(n):
                     un[i][I[i]] = v[i][I[i]]
 
                 err_new = sum((un[i] - u[i]).norm().item() / (1e-6 + un[i].norm().item()) for i in range(n))
                 errs.append(err_new)
-                # if err_new > 0.85*err:
-                #   sp.alpha /= 1.5
-                #   print(sp.alpha)
+                if err_new > 0.85*err and limiting_alpha > 1e-4:
+                  limiting_alpha /= 1.5
+                  
                 err = err_new
                 u = un
                 it = it + 1
 
             if sp.verbose:
-                print("Backward: ", it, err)
+                print("Backward: ", it, err, limiting_alpha)
 
             dg = sp.linear_module.multiply_transpose(*u)
             dg = tuple(g[i] + dg[i] for i in range(n))
+
+
+            assert err < sp.tol, f'Backward iteration not converged. err: {err}, tol: {sp.tol}'
+
 
             sp.stats.bkwd_iters.update(it)
             sp.stats.bkwd_time.update(time.time() - start)
@@ -170,6 +190,7 @@ class NEmonPeacemanRachford(nn.Module):
 
                 if self.save_abs_err:
                     fn = self.nonlin_module(*self.linear_module(x, *zn))
+                    # TODO vectorize
                     err = sum((zn[i] - fn[i]).norm().item() / (zn[i].norm().item()) for i in range(n))
                     errs.append(err)
                 else:
@@ -182,13 +203,17 @@ class NEmonPeacemanRachford(nn.Module):
 
         # Run the forward pass one more time, tracking gradients, then backward placeholder
         zn = self.linear_module(x, *z)
-        zn = self.nonlin_module(*zn)
+        zn2 = self.nonlin_module(*zn)
+        with torch.no_grad():
+            assert (torch.allclose(*z, *zn2))
+        zn3 = self.Backward.apply(self, *zn2)
 
-        zn = self.Backward.apply(self, *zn)
+        with torch.no_grad():
+            assert (torch.allclose(*zn2, *zn3))
         self.stats.fwd_iters.update(it)
         self.stats.fwd_time.update(time.time() - start)
         self.errs = errs
-        return zn
+        return zn3
 
     class Backward(Function):
         @staticmethod
