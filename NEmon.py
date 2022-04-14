@@ -135,6 +135,8 @@ class NEMONSingleConv(nn.Module):
         self.kernel_size = kernel_size
 
     def cpad(self, x):
+        # print(x.size())
+        # print(self.pad)
         return F.pad(x, self.pad, mode="circular")
 
     def onepad(self, x):

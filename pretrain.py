@@ -12,6 +12,7 @@ from logger import Logger
 import numpy as np
 from tqdm import tqdm
 import wandb
+from tqdm import tqdm
 
 def cuda(tensor):
     if torch.cuda.is_available():
@@ -27,7 +28,7 @@ def pretrain(trainLoader, testLoader, model, epochs=15, max_lr=1e-3, change_mo=T
     lr_scheduler =optim.lr_scheduler.StepLR(optimizer, step, gamma=0.1, last_epoch=-1)
 
 
-    model = cuda(ExplicitNet(model))
+    model = cuda(ExplicitConvNet(model))
 
     for epoch in range(1, 1 + epochs):
         nProcessed = 0
@@ -90,37 +91,59 @@ class ExplicitNet(nn.Module):
         self.Wout = im_model.Wout
 
 
-        self.iters = 6
+        self.iters = 2
         self.last_z = None
         #self.D = nn.Linear(in_dim, 10, bias=False)
 
     def forward(self, x):
-        # x = x.view(x.shape[0], -1)
-        # if self.last_z is None:
-        #     self.last_z = tuple(torch.zeros(s, dtype=x.dtype, device=x.device)
-        #               for s in self.linear_module.z_shape(x.shape[0]))
-        # z = self.last_z
 
-        # for i in range(self.iters):
-        #     zn = self.nonlin_module(*self.linear_module(x, *z))
-        #     z = zn
-        # self.last_z = zn
-        # return self.Wout(zn[-1])# + self.D(x)
 
 
         x = x.view(x.shape[0], -1)
-        
-        last_z = tuple(torch.zeros(s, dtype=x.dtype, device=x.device)
+        if self.last_z is None or x.shape[0] != self.last_z[0].shape[0]:
+            last_z = tuple(torch.zeros(s, dtype=x.dtype, device=x.device)
                       for s in self.linear_module.z_shape(x.shape[0]))
-
+        else:
+            last_z = self.last_z
         for i in range(self.iters):
             zn = self.nonlin_module(*self.linear_module(x, *last_z))
             last_z = zn
         # Two options: for loop, and dist reg.
-
+        self.last_z = tuple(z.detach() for z in last_z)
+        
         return self.Wout(zn[-1])# + self.D(x)
         
 
+class ExplicitConvNet(nn.Module):
 
+    def __init__(self, im_model, in_dim=784, out_dim=100, m=0.1, **kwargs):
+        super().__init__()
+        self.linear_module = im_model.mon.linear_module
+        self.nonlin_module = im_model.mon.nonlin_module
+        self.Wout = im_model.Wout
+
+
+        self.iters = 3
+        self.last_z = None
+        #self.D = nn.Linear(in_dim, 10, bias=False)
+        #self.pool = im_model.pool
+    def forward(self, x):
+
+        x = F.pad(x, (1, 1, 1, 1))
+
+        
+        if self.last_z is None or x.shape[0] != self.last_z[0].shape[0]:
+            last_z = tuple(torch.zeros(s, dtype=x.dtype, device=x.device)
+                      for s in self.linear_module.z_shape(x.shape[0]))
+        else:
+            last_z = self.last_z
+        for i in range(self.iters):
+            zn = self.nonlin_module(*self.linear_module(x, *last_z))
+            last_z = zn
+        z = last_z[-1]
+        # Two options: for loop, and dist reg.
+        #self.last_z = tuple(z.detach().requires_grad_() for z in last_z)
+        #z = F.avg_pool2d(zn[-1], self.pool)
+        return self.Wout(z.view(z.shape[0], -1))# + self.D(x)
 
 

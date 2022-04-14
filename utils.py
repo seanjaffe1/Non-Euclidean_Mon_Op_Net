@@ -85,3 +85,28 @@ def get_splitting_stats(dataLoader, model):
         data, target = cuda(batch[0]), cuda(batch[1])
         model(data)
         return model.mon.errs
+
+
+def load_model(model, loadfile):
+        model = model.eval()
+        state_dict = model.state_dict()
+        try:
+            state_dict = torch.load(loadfile)
+            print("Model loaded from to:", loadfile)
+            model.load_state_dict(state_dict)
+        except OSError as e:
+            print("file: {} not found. Model not saved. Training for first time.".format(loadfile))
+        
+
+def save_model(model, savefile):
+        model = model.eval()
+        state_dict = model.state_dict()
+
+        try:
+            print("Attempting save to:", savefile)
+            torch.save(state_dict, savefile)
+            print("Model saved to:".format(savefile))
+        
+        except OSError as e:
+            print("file: {} not found. Model not saved.".format(savefile))
+        

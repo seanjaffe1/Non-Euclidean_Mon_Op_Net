@@ -2,3 +2,4 @@ data/*
 wandb/*
 logs/*
 __pyc*
+trained/*

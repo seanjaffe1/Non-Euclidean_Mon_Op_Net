@@ -11,8 +11,8 @@ import argparse
 import numpy as np
 import wandb
 
-
-
+from utils import load_model, save_model
+from pretrain import pretrain as pretrain_model
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', metavar='name', default='mnist', 
@@ -37,17 +37,27 @@ parser.add_argument('--detect_anomaly', action='store_true',
                     help='sets torch.autograd,set_detect_anomaly to True')
 parser.add_argument('--seed', type=int, default=42,
                     help='seed for numpy and pytorch')
-parser.add_argument('--m', type=float, default=1.0)
+parser.add_argument('--m', type=float, default=0.1)
 
 parser.add_argument('--sp', metavar='name', default='FS',
                     help = 'Splitting method: \'FS\'  for ForwardStep or \'PR\' for PeacemanRachford' )
 
-
+# TODO make this do something
 parser.add_argument('--savefile', type=ascii, default='',
                     help =  'file name to save model to. If none, won\' be saved.')
 
 parser.add_argument('--loadfile', type=ascii, default='',
                     help= 'file to load model from. No file loaded if none.')
+
+parser.add_argument('--pretrain', action='store_true',
+                    help='Pretrains model using explicit learning, only supported for fnn, mnist')
+
+parser.add_argument('--just_pretrain', action='store_true',
+                    help='ONLY Pretrains model using explicit learning, only supported for fnn, mnist')
+
+parser.add_argument('--pretrain_steps', type=int, default=0,
+                    help='Number of epochs to pretrain')
+
 args = parser.parse_args()
 
 dataset = args.dataset
@@ -59,8 +69,15 @@ learning_rate =args.lr
 log_wandb=args.wandb
 m = args.m
 sp_name = args.sp
-
+savefile = args.savefile.strip("\"\'")
+loadfile = args.loadfile.strip("\"\'")
+pretrain = args.pretrain
+just_pretrain = args.just_pretrain
+pretrain_steps = args.pretrain_steps
  
+if pretrain or just_pretrain and loadfile != "":
+     print("WARNING: loading previously trained model and running pretrain")
+
 seed_no=args.seed
 torch.manual_seed(seed_no)
 np.random.seed(seed_no)
@@ -83,7 +100,7 @@ if log_wandb:
      wandb.config.m = m
      wandb.config.sp = sp_name
      wandb.config.dataset = dataset
-
+     wandb.config.pretrain_steps = pretrain_steps
 
 if dataset == 'cifar':
      trainLoader, testLoader = train.cifar_loaders(train_batch_size=batch_size, test_batch_size=batch_size, augment=False)
@@ -108,7 +125,15 @@ if dataset == 'cifar':
                          tol=1e-2,
                          m=m)
      else:
-          raise argparse.ArgumentError("model must be 'scnn'")    
+          model = train.NEMultiConvNet(splitting_method,
+                                in_dim=32,
+                       conv_sizes=(16, 32, 81),
+                       alpha=0.5,
+                       max_iter=400,
+                       tol=1e-2,
+                       m=m)
+          step  = 25
+     load_model(model, loadfile)
 
      train.train(trainLoader, testLoader,
           model,
@@ -120,7 +145,8 @@ if dataset == 'cifar':
           print_freq=100,
           tune_alpha=False,
           regularizer=0,
-          log_wandb=log_wandb)
+          log_wandb=log_wandb,
+          pretrain_steps=pretrain_steps)
 
 if dataset == 'mnist':
      if model_type == 'fnn':
@@ -156,16 +182,28 @@ if dataset == 'mnist':
           step  = 25
      else:
           raise argparse.ArgumentError("model must be 'fnn', 'scnn', or 'mccn")    
-     train.train(trainLoader, testLoader,
-               model,
-               max_lr=learning_rate,
-               lr_mode='step',
-               step=step,
-               change_mo=False,
-          #       epochs=40,
-               epochs=epochs,
-               print_freq=100,
-               tune_alpha=False,
-               regularizer = 0,
-               log_wandb=log_wandb)
+
+     
+     load_model(model, loadfile)
+     
+     if pretrain or just_pretrain:
+          pretrain_model(trainLoader, testLoader, model, epochs=15, max_lr=1e-3, change_mo=True,  lr_mode='step',
+          step=10)
+
+     if not just_pretrain:
+          train.train(trainLoader, testLoader,
+                    model,
+                    max_lr=learning_rate,
+                    lr_mode='step',
+                    step=step,
+                    change_mo=False,
+               #       epochs=40,
+                    epochs=epochs,
+                    print_freq=100,
+                    tune_alpha=False,
+                    regularizer = 0,
+                    log_wandb=log_wandb,
+                    pretrain_steps=pretrain_steps)
+if savefile !=  "":
+     save_model(model, savefile)
 

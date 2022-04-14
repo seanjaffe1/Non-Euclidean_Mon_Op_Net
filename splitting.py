@@ -13,14 +13,13 @@ import time
 
 
 class NEmonForwardStep(nn.Module):
-    def __init__(self, linear_module, nonlin_module, alpha, tol=1e-4, max_iter=500, verbose=False):
+    def __init__(self, linear_module, nonlin_module, alpha, tol=1e-4, max_iter=500, pretrain_iter=3, verbose=False):
         super().__init__()
         self.linear_module = linear_module
         self.nonlin_module = nonlin_module
         #self.alpha = 1/torch.max(torch.diag(torch.abs(self.linear_module.A.weight - torch.diag(torch.abs(self.linear_module.A.weight)@torch.ones(self.linear_module.A.weight.size[0])) + self.linear_module.m*torch.diag(torch.ones(self.linear_module.A.weight.size[0]))))) - 1e-8
         #self.alpha = 1/torch.max(torch.diag(torch.abs(self.linear_module.A.weight - torch.diag(torch.abs(self.linear_module.A.weight)@torch.ones(self.linear_module.A.weight.size()[0])) + self.linear_module.m*torch.diag(torch.ones(self.linear_module.A.weight.size()[0]))))) - 1e-8
         self.max_alpha = alpha
-        self.running_alpha = alpha
         self.backward_alpha = alpha
         self.tol = tol
         self.max_iter = max_iter
@@ -28,17 +27,78 @@ class NEmonForwardStep(nn.Module):
         self.verbose = verbose
         self.stats = utils.SplittingMethodStats()
         self.save_abs_err = False
+        self.pretrain = False
+        self.pretrain_iter  = pretrain_iter
 
-    def forward(self, x):
+    def forward(self, x, max_iter = None, max_alpha = None):
         """ Forward pass of NEMON, find an equilibirum with averaged iterations"""
+        
+
+        
         start = time.time()
 
         # Reset alpha each time?
         running_alpha = self.max_alpha
+
         # Run the forward pass _without_ tracking gradients
-        with torch.no_grad():
+        if not self.pretrain:
+            with torch.no_grad():
+                z = tuple(torch.zeros(s, dtype=x.dtype, device=x.device)
+                        for s in self.linear_module.z_shape(x.shape[0]))
+                n = len(z)
+                bias = self.linear_module.bias(x)
+
+                # SEAN error const needs to be changed?
+                err = 1
+                it = 0
+                errs = []
+
+                
+                while (err > self.tol and it < self.max_iter):
+                    # Sasha
+                    zn = self.linear_module.multiply(*z)
+                    zn = tuple((zn[i] + bias[i]) for i in range(n)) # TODO this needs to be vectorized
+                    zn = self.nonlin_module(*zn)
+                    zn = tuple((1 - running_alpha) * z[i] + running_alpha * zn[i] for i in range(n))
+                    
+                    #Original Mon
+                    # zn = self.linear_module.multiply(*z)
+                    # zn = tuple((1 - self.alpha) * z[i] + self.alpha * (zn[i] + bias[i]) for i in range(n))
+                    # zn = self.nonlin_module(*zn)
+                    if self.save_abs_err:
+                        fn = self.nonlin_module(*self.linear_module(x, *zn))
+                        err_new = sum((zn[i] - fn[i]).norm().item() / (zn[i].norm().item()) for i in range(n))
+                        errs.append(err_new)
+                    else:
+                        err_new = sum((zn[i] - z[i]).norm().item() / (1e-6 + zn[i].norm().item()) for i in range(n))
+                    
+                    # DELETE:
+                    if err_new > 0.85*err and running_alpha > 1e-3:
+                        running_alpha /= 1.5
+                    
+                    err = err_new
+                    z = zn
+                    it = it + 1
+
+            if self.verbose:
+                print("Forward: ", it, err)
+
+            # Run the forward pass one more time, tracking gradients, then backward placeholder
+            zn = self.linear_module(x, *z)
+            zn = self.nonlin_module(*zn)
+
+
+            assert err < self.tol, 'Forward iteration not converged'
+            
+            zn = self.Backward.apply(self, *zn)
+
+
+            self.stats.fwd_iters.update(it)
+            self.stats.fwd_time.update(time.time() - start)
+            self.errs = errs
+        else:
             z = tuple(torch.zeros(s, dtype=x.dtype, device=x.device)
-                      for s in self.linear_module.z_shape(x.shape[0]))
+                    for s in self.linear_module.z_shape(x.shape[0]))
             n = len(z)
             bias = self.linear_module.bias(x)
 
@@ -46,12 +106,14 @@ class NEmonForwardStep(nn.Module):
             err = 1
             it = 0
             errs = []
-            while (err > self.tol and it < self.max_iter):
+
+            
+            while (err > self.tol and it < self.pretrain_iter):
                 # Sasha
                 zn = self.linear_module.multiply(*z)
-                zn = tuple((zn[i] + bias[i]) for i in range(n))
+                zn = tuple((zn[i] + bias[i]) for i in range(n)) # TODO this needs to be vectorized
                 zn = self.nonlin_module(*zn)
-                zn = tuple((1 - self.running_alpha) * z[i] + self.running_alpha * zn[i] for i in range(n))
+                zn = tuple((1 - running_alpha) * z[i] + running_alpha * zn[i] for i in range(n))
                 
                 #Original Mon
                 # zn = self.linear_module.multiply(*z)
@@ -65,9 +127,9 @@ class NEmonForwardStep(nn.Module):
                     err_new = sum((zn[i] - z[i]).norm().item() / (1e-6 + zn[i].norm().item()) for i in range(n))
                 
                 # DELETE:
-                if err_new > 0.85*err and self.running_alpha > 1e-5:
-                  self.running_alpha /= 1.5
-                  #print(self.running_alpha)
+                if err_new > 0.85*err and running_alpha > 1e-3:
+                    running_alpha /= 1.5
+                
                 err = err_new
                 z = zn
                 it = it + 1
@@ -75,20 +137,12 @@ class NEmonForwardStep(nn.Module):
         if self.verbose:
             print("Forward: ", it, err)
 
-        # Run the forward pass one more time, tracking gradients, then backward placeholder
-        zn = self.linear_module(x, *z)
-        zn = self.nonlin_module(*zn)
-
-   
-        assert err < self.tol, 'Forward iteration not converged'
-        
-        zn = self.Backward.apply(self, *zn)
 
 
         self.stats.fwd_iters.update(it)
         self.stats.fwd_time.update(time.time() - start)
         self.errs = errs
-        
+
         return zn
 
     class Backward(Function):
@@ -141,8 +195,7 @@ class NEmonForwardStep(nn.Module):
             dg = sp.linear_module.multiply_transpose(*u)
             dg = tuple(g[i] + dg[i] for i in range(n))
 
-
-            assert err < sp.tol, f'Backward iteration not converged. err: {err}, tol: {sp.tol}'
+            # assert err < sp.tol, f'Backward iteration not converged. err: {err}, tol: {sp.tol}'
 
 
             sp.stats.bkwd_iters.update(it)

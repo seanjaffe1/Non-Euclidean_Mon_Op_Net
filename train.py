@@ -26,7 +26,8 @@ def cuda(tensor):
 
 def train(trainLoader, testLoader, model, epochs=15, max_lr=1e-3,
           print_freq=10, change_mo=True, model_path=None, lr_mode='step',
-          step=10,tune_alpha=False,regularizer=0,max_alpha=1., log_wandb=False):
+          step=10,tune_alpha=False,pretrain_steps=0,regularizer=0,max_alpha=1., 
+          log_wandb=False):
     loggr = Logger(printstr=["batch: {}. loss: {:.2f}, valid_loss/acc: {:.2f}/{}, sparsity of A: {:.2f}%, norm of A: {:.2f}, Lipschitz constant: {:.2f}", "batch", "loss", "valid_loss", "valid_acc", "sparsity_A", "norm_A", "Lipschitz"],
                dir_name='NEMon-CIFAR')
 
@@ -46,7 +47,7 @@ def train(trainLoader, testLoader, model, epochs=15, max_lr=1e-3,
         momentum_schedule = lambda t: np.interp([t],
                                                 [0, (epochs - 5) // 2, epochs - 5, epochs],
                                                 [0.95, max_mo, 0.95, 0.95])[0]
-
+    
     model = cuda(model)
 
     for epoch in range(1, 1 + epochs):
@@ -55,7 +56,7 @@ def train(trainLoader, testLoader, model, epochs=15, max_lr=1e-3,
         model.train()
         start = time.time()
         total_train_loss = 0
-        for batch_idx, batch in enumerate(trainLoader):
+        for batch_idx, batch in tqdm(enumerate(trainLoader), total = len(trainLoader)):
             if (batch_idx == int(len(trainLoader)/3) or batch_idx == int(len(trainLoader)/3*2)) and tune_alpha:
                 run_tune_alpha(model, cuda(batch[0]), max_alpha)
             if lr_mode == '1cycle':
@@ -69,7 +70,14 @@ def train(trainLoader, testLoader, model, epochs=15, max_lr=1e-3,
 
             data, target = cuda(batch[0]), cuda(batch[1])
             optimizer.zero_grad()
-            preds = model(data)
+
+            if epoch <= pretrain_steps:
+                model.mon.pretrain = True
+                preds = model(data, max_iter = 3)
+            else:
+                model.mon.pretrain=False
+                preds = model(data)
+
             ce_loss = F.cross_entropy(preds, target)
             if regularizer != 0:
                 Ufft = NEmon.init_fft_conv(model.mon.linear_module.U.weight, (32, 32))
@@ -112,7 +120,7 @@ def train(trainLoader, testLoader, model, epochs=15, max_lr=1e-3,
         incorrect = 0
         model.eval()
         with torch.no_grad():
-            for batch in testLoader:
+            for batch in tqdm(testLoader, total=len(testLoader)):
                 data, target = cuda(batch[0]), cuda(batch[1])
                 preds = model(data)
                 ce_loss = nn.CrossEntropyLoss(reduction='sum')(preds, target)
@@ -285,9 +293,9 @@ class NESingleConvNet(nn.Module):
         self.mon = splittingMethod(linear_module, nonlin_module, **expand_args(MON_DEFAULTS, kwargs))
         self.Wout = nn.Linear(self.out_dim, 10)
 
-    def forward(self, x):
+    def forward(self, x,  max_iter = None, max_alpha = None):
         x = F.pad(x, (1, 1, 1, 1))
-        z = self.mon(x)
+        z = self.mon(x, max_iter=max_iter, max_alpha=max_alpha)
         z = F.avg_pool2d(z[-1], self.pool)
         return self.Wout(z.view(z.shape[0], -1))
 
@@ -302,9 +310,9 @@ class NEMultiConvNet(nn.Module):
         dim = out_shape[1]*out_shape[2]*out_shape[3]
         self.Wout = nn.Linear(dim, 10)
 
-    def forward(self, x):
+    def forward(self, x,  max_iter = None, max_alpha = None):
         x = F.pad(x, (1,1,1,1))
-        zs = self.mon(x)
+        zs = self.mon(x,  max_iter=max_iter, max_alpha=max_alpha)
         z = zs[-1]
         z = z.view(z.shape[0],-1)
         return self.Wout(z)
