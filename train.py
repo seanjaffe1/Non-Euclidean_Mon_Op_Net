@@ -78,6 +78,7 @@ def train(trainLoader, testLoader, model, epochs=15, max_lr=1e-3,
                 model.mon.pretrain=False
                 preds = model(data)
 
+
             ce_loss = F.cross_entropy(preds, target)
             if regularizer != 0:
                 Ufft = NEmon.init_fft_conv(model.mon.linear_module.U.weight, (32, 32))
@@ -207,7 +208,7 @@ def mnist_loaders(train_batch_size, test_batch_size=None):
     return trainLoader, testLoader
 
 
-def cifar_loaders(train_batch_size, test_batch_size=None, augment=True):
+def cifar_loaders(train_batch_size, test_batch_size=None, augment=True, use_size_100 = False):
     if test_batch_size is None:
         test_batch_size = train_batch_size
 
@@ -217,21 +218,36 @@ def cifar_loaders(train_batch_size, test_batch_size=None, augment=True):
     if augment:
         transforms_list = [transforms.RandomHorizontalFlip(),
                             transforms.RandomCrop(32, 4),
+                            #transforms.AutoAugment(transforms.AutoAugmentPolicy.CIFAR10),
                             transforms.ToTensor(),
                             normalize]
     else:
         transforms_list = [transforms.ToTensor(),
                            normalize]
-    train_dset = dset.CIFAR10('data',
-                              train=True,
-                              download=True,
-                              transform=transforms.Compose(transforms_list))
-    test_dset = dset.CIFAR10('data',
-                             train=False,
-                             transform=transforms.Compose([
-                                 transforms.ToTensor(),
-                                 normalize
-                             ]))
+
+    if not use_size_100:
+        train_dset = dset.CIFAR10('data',
+                                train=True,
+                                download=True,
+                                transform=transforms.Compose(transforms_list))
+        test_dset = dset.CIFAR10('data',
+                                train=False,
+                                transform=transforms.Compose([
+                                    transforms.ToTensor(),
+                                    normalize
+                                ]))
+
+    else:
+        train_dset = dset.CIFAR100('data',
+                                train=True,
+                                download=True,
+                                transform=transforms.Compose(transforms_list))
+        test_dset = dset.CIFAR100('data',
+                                train=False,
+                                transform=transforms.Compose([
+                                    transforms.ToTensor(),
+                                    normalize
+                                ]))
 
     trainLoader = torch.utils.data.DataLoader(train_dset, batch_size=train_batch_size,
                                               shuffle=True, pin_memory=True)
@@ -263,12 +279,12 @@ MON_DEFAULTS = {
 
 class NESingleFcNet(nn.Module):
 
-    def __init__(self, splittingMethod, in_dim=784, out_dim=100, m=0.1, **kwargs):
+    def __init__(self, splittingMethod, in_dim=784, out_dim=100, m=0.1, labels=10, **kwargs):
         super().__init__()
         linear_module = NEmon.NEMON(in_dim, out_dim, m=m)
         nonlin_module = NEmon.NEMONReLU()
         self.mon = splittingMethod(linear_module, nonlin_module, **expand_args(MON_DEFAULTS, kwargs))
-        self.Wout = nn.Linear(out_dim, 10, bias=True)
+        self.Wout = nn.Linear(out_dim, labels, bias=True)
         #self.D = nn.Linear(in_dim, 10, bias=False)
 
     def forward(self, x):
@@ -278,7 +294,7 @@ class NESingleFcNet(nn.Module):
 
 class NESingleConvNet(nn.Module):
 
-    def __init__(self, splittingMethod, in_dim=28, in_channels=1, out_channels=32, m=0.1, **kwargs):
+    def __init__(self, splittingMethod, in_dim=28, in_channels=1, out_channels=32, labels=10, m=0.1, **kwargs):
         super().__init__()
 
 
@@ -291,7 +307,7 @@ class NESingleConvNet(nn.Module):
         #nonlin_module = NEmon.NEMONReLU()
 
         self.mon = splittingMethod(linear_module, nonlin_module, **expand_args(MON_DEFAULTS, kwargs))
-        self.Wout = nn.Linear(self.out_dim, 10)
+        self.Wout = nn.Linear(self.out_dim, labels)
 
     def forward(self, x,  max_iter = None, max_alpha = None):
         x = F.pad(x, (1, 1, 1, 1))
@@ -301,14 +317,14 @@ class NESingleConvNet(nn.Module):
 
 class NEMultiConvNet(nn.Module):
     def __init__(self, splittingMethod, in_dim=28, in_channels=1,
-                 conv_sizes=(16, 32, 64), m=1.0, **kwargs):
+                 conv_sizes=(16, 32, 64), labels=10, m=1.0, **kwargs):
         super().__init__()
         linear_module = NEmon.NEMONMultiConv(in_channels, conv_sizes, in_dim+2, kernel_size=3, m=m)
         nonlin_module = NEmon.NEMONBorderReLU(linear_module.pad[0])
         self.mon = splittingMethod(linear_module, nonlin_module, **expand_args(MON_DEFAULTS, kwargs))
         out_shape = linear_module.z_shape(1)[-1]
         dim = out_shape[1]*out_shape[2]*out_shape[3]
-        self.Wout = nn.Linear(dim, 10)
+        self.Wout = nn.Linear(dim, labels)
 
     def forward(self, x,  max_iter = None, max_alpha = None):
         x = F.pad(x, (1,1,1,1))

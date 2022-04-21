@@ -3,6 +3,7 @@ Code is adapted from the monotone operator network repository on GitHub
 https://github.com/locuslab/monotone_op_net
 '''
 
+from typing import Tuple
 import torch
 import torch.nn as nn
 from torch.autograd import Function
@@ -30,6 +31,8 @@ class NEmonForwardStep(nn.Module):
         self.pretrain = False
         self.pretrain_iter  = pretrain_iter
 
+        self.last_eq = None # forward eq point, torch tensor
+        self.last_back_eq = None
     def forward(self, x, max_iter = None, max_alpha = None):
         """ Forward pass of NEMON, find an equilibirum with averaged iterations"""
         
@@ -43,9 +46,16 @@ class NEmonForwardStep(nn.Module):
         # Run the forward pass _without_ tracking gradients
         if not self.pretrain:
             with torch.no_grad():
-                z = tuple(torch.zeros(s, dtype=x.dtype, device=x.device)
+                
+                
+                if self.last_eq is None or self.last_eq.shape[0] != x.shape[0]:# or True:
+                    z = tuple(torch.zeros(s, dtype=x.dtype, device=x.device)
                         for s in self.linear_module.z_shape(x.shape[0]))
+                else: 
+                    z = tuple([self.last_eq])
                 n = len(z)
+
+
                 bias = self.linear_module.bias(x)
 
                 # SEAN error const needs to be changed?
@@ -56,6 +66,7 @@ class NEmonForwardStep(nn.Module):
                 
                 while (err > self.tol and it < self.max_iter):
                     # Sasha
+                    #print(len(z), z[0].shape)
                     zn = self.linear_module.multiply(*z)
                     zn = tuple((zn[i] + bias[i]) for i in range(n)) # TODO this needs to be vectorized
                     zn = self.nonlin_module(*zn)
@@ -92,6 +103,8 @@ class NEmonForwardStep(nn.Module):
             
             zn = self.Backward.apply(self, *zn)
 
+            # Uncomment to re-use fixed point
+            #self.last_eq = zn[0].detach().clone()
 
             self.stats.fwd_iters.update(it)
             self.stats.fwd_time.update(time.time() - start)
@@ -163,8 +176,12 @@ class NEmonForwardStep(nn.Module):
             I = [j[i] == 0 for i in range(n)]
             d = [(1 - j[i]) / j[i] for i in range(n)]
             v = tuple(j[i] * g[i] for i in range(n))
-            u = tuple(torch.zeros(s, dtype=g[0].dtype, device=g[0].device)
+
+            if sp.last_back_eq is None or sp.last_eq.shape[0] != g[0].shape[0]:
+                u = tuple(torch.zeros(s, dtype=g[0].dtype, device=g[0].device)
                       for s in sp.linear_module.z_shape(g[0].shape[0]))
+            else: 
+                u = tuple([sp.last_back_eq])
             #sp.alpha = 0.11
             limiting_alpha = 0.2
 
@@ -189,6 +206,8 @@ class NEmonForwardStep(nn.Module):
                 u = un
                 it = it + 1
 
+            # uncomment to re-use fized point as init
+            #sp.last_back_eq = u[0].detach().clone()
             if sp.verbose:
                 print("Backward: ", it, err, limiting_alpha)
 
