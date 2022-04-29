@@ -14,7 +14,7 @@ import time
 
 
 class NEmonForwardStep(nn.Module):
-    def __init__(self, linear_module, nonlin_module, alpha, tol=1e-4, max_iter=500, pretrain_iter=3, verbose=False):
+    def __init__(self, linear_module, nonlin_module, alpha, tol=1e-4, max_iter=500, pretrain_iter=3, verbose=False, approx_ift = False):
         super().__init__()
         self.linear_module = linear_module
         self.nonlin_module = nonlin_module
@@ -30,9 +30,11 @@ class NEmonForwardStep(nn.Module):
         self.save_abs_err = False
         self.pretrain = False
         self.pretrain_iter  = pretrain_iter
+        self.approx_ift = approx_ift
 
         self.last_eq = None # forward eq point, torch tensor
         self.last_back_eq = None
+        
     def forward(self, x, max_iter = None, max_alpha = None):
         """ Forward pass of NEMON, find an equilibirum with averaged iterations"""
         
@@ -44,7 +46,7 @@ class NEmonForwardStep(nn.Module):
         running_alpha = self.max_alpha
 
         # Run the forward pass _without_ tracking gradients
-        if not self.pretrain:
+        if not self.pretrain or True: # TODO fix pretrain
             with torch.no_grad():
                 
                 
@@ -190,28 +192,36 @@ class NEmonForwardStep(nn.Module):
             err = 1.0
             it = 0
             errs = []
-            while (err > sp.tol and it < sp.max_iter):
-                un = sp.linear_module.multiply_transpose(*u)
-                un = tuple((1 - limiting_alpha) * u[i] + limiting_alpha * un[i] for i in range(n))
-                un = tuple((un[i] + limiting_alpha* (1 + d[i]) * v[i]) / (1 + limiting_alpha * d[i]) for i in range(n))
-                for i in range(n):
-                    un[i][I[i]] = v[i][I[i]]
+            if sp.approx_ift or sp.pretrain:  ## TODO deatch from pretrain
+                dg = sp.linear_module.multiply_transpose(*v)
+            else:
 
-                err_new = sum((un[i] - u[i]).norm().item() / (1e-6 + un[i].norm().item()) for i in range(n))
-                errs.append(err_new)
-                if err_new > 0.85*err and limiting_alpha > 1e-4:
-                  limiting_alpha /= 1.5
-                  
-                err = err_new
-                u = un
-                it = it + 1
+                while (err > sp.tol and it < sp.max_iter):
+                    un = sp.linear_module.multiply_transpose(*u)
+                    un = tuple((1 - limiting_alpha) * u[i] + limiting_alpha * un[i] for i in range(n))
+                    un = tuple((un[i] + limiting_alpha* (1 + d[i]) * v[i]) / (1 + limiting_alpha * d[i]) for i in range(n))
+                    for i in range(n):
+                        un[i][I[i]] = v[i][I[i]]
 
-            # uncomment to re-use fized point as init
-            #sp.last_back_eq = u[0].detach().clone()
-            if sp.verbose:
-                print("Backward: ", it, err, limiting_alpha)
+                    err_new = sum((un[i] - u[i]).norm().item() / (1e-6 + un[i].norm().item()) for i in range(n))
+                    errs.append(err_new)
+                    if err_new > 0.85*err and limiting_alpha > 1e-4:
+                        limiting_alpha /= 1.5
+                    
+                    err = err_new
+                    u = un
+                    it = it + 1
 
-            dg = sp.linear_module.multiply_transpose(*u)
+                # uncomment to re-use fized point as init
+                #sp.last_back_eq = u[0].detach().clone()
+                if sp.verbose:
+                    print("Backward: ", it, err, limiting_alpha)
+
+
+                
+                dg = sp.linear_module.multiply_transpose(*u)
+            
+                # TODO should this be included in approx?
             dg = tuple(g[i] + dg[i] for i in range(n))
 
             # assert err < sp.tol, f'Backward iteration not converged. err: {err}, tol: {sp.tol}'

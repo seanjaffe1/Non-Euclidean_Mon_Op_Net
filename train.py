@@ -27,7 +27,7 @@ def cuda(tensor):
 def train(trainLoader, testLoader, model, epochs=15, max_lr=1e-3,
           print_freq=10, change_mo=True, model_path=None, lr_mode='step',
           step=10,tune_alpha=False,pretrain_steps=0,regularizer=0,max_alpha=1., 
-          log_wandb=False):
+          log_wandb=False, approx_ift_steps = 0):
     loggr = Logger(printstr=["batch: {}. loss: {:.2f}, valid_loss/acc: {:.2f}/{}, sparsity of A: {:.2f}%, norm of A: {:.2f}, Lipschitz constant: {:.2f}", "batch", "loss", "valid_loss", "valid_acc", "sparsity_A", "norm_A", "Lipschitz"],
                dir_name='NEMon-CIFAR')
 
@@ -73,10 +73,10 @@ def train(trainLoader, testLoader, model, epochs=15, max_lr=1e-3,
 
             if epoch <= pretrain_steps:
                 model.mon.pretrain = True
-                preds = model(data, max_iter = 3)
+                preds = model(data, max_iter = 3)#, approx_ift = epoch < approx_ift_steps)
             else:
                 model.mon.pretrain=False
-                preds = model(data)
+                preds = model(data)#, approx_ift = epoch < approx_ift_steps)
 
 
             ce_loss = F.cross_entropy(preds, target)
@@ -287,7 +287,7 @@ class NESingleFcNet(nn.Module):
         self.Wout = nn.Linear(out_dim, labels, bias=True)
         #self.D = nn.Linear(in_dim, 10, bias=False)
 
-    def forward(self, x):
+    def forward(self, x, max_iter = None):
         x = x.view(x.shape[0], -1)
         z = self.mon(x)
         return self.Wout(z[-1])# + self.D(x)

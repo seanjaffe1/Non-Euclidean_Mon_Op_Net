@@ -159,15 +159,17 @@ class NEMONSingleConv(nn.Module):
 
     def multiply(self, *z):
 
-        A = self.g * self.A.weight / self.A.weight.reshape(-1).norm()
+        A = self.g * self.A.weight / self.A.weight.reshape(-1).norm() # TODO need norm
         Az = F.conv2d(self.cpad(z[0]), A)
 
         
         
         # new
-        #z_out = (self.m - torch.max(torch.sum(torch.abs(A), axis=(1, 2,3)))) * z[0] + Az
+        z_out = (self.m - torch.max(torch.sum(torch.abs(A), axis=(1, 2,3)))) * z[0] + Az
         #old
-        z_out = (self.m - torch.max(torch.abs(A)) * self.out_channels) * z[0] + Az
+        print(self.A.weight.shape, Az.shape, z[0].shape, z_out.shape)
+        print( torch.max(torch.sum(torch.abs(A), axis=(1, 2,3))))
+        #z_out = (self.m - torch.max(torch.abs(A)) * self.out_channels) * z[0] + Az
         return (z_out,)
 
     def multiply_transpose(self, *g):
@@ -175,9 +177,9 @@ class NEMONSingleConv(nn.Module):
         A = self.g * self.A.weight / self.A.weight.reshape(-1).norm()
         ATg = self.uncpad(F.conv_transpose2d(self.cpad(g[0]), A))
         # new
-        #g_out =(self.m - torch.max(torch.sum(torch.abs(A), axis=(1, 2,3)))) * g[0] + ATg
+        g_out =(self.m - torch.max(torch.sum(torch.abs(A), axis=(1, 2,3)))) * g[0] + ATg
         #old
-        g_out = (self.m - torch.max(torch.abs(A)) * self.out_channels) * g[0] + ATg
+        #g_out = (self.m - torch.max(torch.abs(A)) * self.out_channels) * g[0] + ATg
         return (g_out,)
 
     def init_inverse(self, alpha, beta):
