@@ -292,6 +292,22 @@ class NESingleFcNet(nn.Module):
         z = self.mon(x)
         return self.Wout(z[-1])# + self.D(x)
 
+class NESingleFcProjNet(nn.Module):
+
+    def __init__(self, splittingMethod, in_dim=784, out_dim=100, m=0.1, labels=10, **kwargs):
+        super().__init__()
+        linear_module = NEmon.NEMONProj(in_dim, out_dim, m=m)
+        nonlin_module = NEmon.NEMONReLU()
+        self.mon = splittingMethod(linear_module, nonlin_module, **expand_args(MON_DEFAULTS, kwargs))
+        self.Wout = nn.Linear(out_dim, labels, bias=True)
+        #self.D = nn.Linear(in_dim, 10, bias=False)
+
+    def forward(self, x, max_iter = None):
+        x = x.view(x.shape[0], -1)
+        z = self.mon(x)
+        return self.Wout(z[-1])# + self.D(x)
+
+
 class NESingleConvNet(nn.Module):
 
     def __init__(self, splittingMethod, in_dim=28, in_channels=1, out_channels=32, labels=10, m=0.1, **kwargs):
@@ -312,6 +328,7 @@ class NESingleConvNet(nn.Module):
     def forward(self, x,  max_iter = None, max_alpha = None):
         x = F.pad(x, (1, 1, 1, 1))
         z = self.mon(x, max_iter=max_iter, max_alpha=max_alpha)
+
         z = F.avg_pool2d(z[-1], self.pool)
         return self.Wout(z.view(z.shape[0], -1))
 

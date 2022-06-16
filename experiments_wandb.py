@@ -19,7 +19,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', metavar='name', default='mnist', 
                     help="Which dataset to use: 'cifar', 'cifar100', or 'mnist'")
 parser.add_argument('--model', metavar='name', default='scnn', 
-                    help="Which model to use: 'fnn', 'scnn', 'mcnn'")
+                    help="Which model to use: 'fnn', 'scnn', 'mcnn', 'proj'")
 
 parser.add_argument('--epochs', type=int, default=10,
                     help='training epochs')
@@ -59,6 +59,10 @@ parser.add_argument('--just_pretrain', action='store_true',
 parser.add_argument('--pretrain_steps', type=int, default=0,
                     help='Number of epochs to pretrain')
 
+                    
+parser.add_argument('--approx_ift_steps', type=int, default=0,
+                    help='Number of epochs to approx ift in backward calc')
+
 args = parser.parse_args()
 
 dataset = args.dataset
@@ -75,6 +79,7 @@ loadfile = args.loadfile.strip("\"\'")
 pretrain = args.pretrain
 just_pretrain = args.just_pretrain
 pretrain_steps = args.pretrain_steps
+approx_ift_steps = args.approx_ift_steps
  
 if pretrain or just_pretrain and loadfile != "":
      print("WARNING: loading previously trained model and running pretrain")
@@ -102,6 +107,7 @@ if log_wandb:
      wandb.config.sp = sp_name
      wandb.config.dataset = dataset
      wandb.config.pretrain_steps = pretrain_steps
+     wandb.approx_ift_steps = approx_ift_steps
 
 if dataset == 'cifar':
      trainLoader, testLoader = train.cifar_loaders(train_batch_size=batch_size, test_batch_size=batch_size, augment=True)
@@ -141,6 +147,14 @@ if dataset == 'cifar' or dataset == 'cifar100':
                          max_iter=300,
                          tol=1e-2,
                          m=m)
+     elif model_type == 'proj':
+          model = train.NESingleFcProjNet(splitting_method,
+                                   in_dim=3*(32**2),
+                         labels=labels,
+                         alpha=0.5,
+                         max_iter=300,
+                         tol=1e-2,
+                         m=m)
      else:
           model = train.NEMultiConvNet(splitting_method,
                                 in_dim=32,
@@ -165,11 +179,22 @@ if dataset == 'cifar' or dataset == 'cifar100':
           tune_alpha=False,
           regularizer=0,
           log_wandb=log_wandb,
-          pretrain_steps=pretrain_steps)
+          pretrain_steps=pretrain_steps,
+          approx_ift_steps = approx_ift_steps)
 
 if dataset == 'mnist':
      if model_type == 'fnn':
           model = train.NESingleFcNet(splitting_method,
+                         in_dim=28**2,
+                         out_dim=100,
+                         alpha=1.0,
+                         max_iter=300,
+                         tol=1e-2,
+                         m=m)
+          step = 10
+
+     elif model_type == 'proj':
+          model = train.NESingleFcProjNet(splitting_method,
                          in_dim=28**2,
                          out_dim=100,
                          alpha=1.0,
@@ -222,7 +247,9 @@ if dataset == 'mnist':
                tune_alpha=False,
                regularizer = 0,
                log_wandb=log_wandb,
-               pretrain_steps=pretrain_steps)
+               pretrain_steps=pretrain_steps,
+               approx_ift_steps = approx_ift_steps)
+
 if savefile !=  "":
      save_model(model, savefile)
 
